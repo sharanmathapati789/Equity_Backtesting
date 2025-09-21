@@ -13,18 +13,25 @@ import pandas as pd
 from datetime import datetime, timedelta, time
 import time as system_time
 import logging
+import sys
+from pathlib import Path
+
+# Path to the parent directory that contains "equity_backtesting_framework"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # one level up from the package folder
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # --- Module Imports ---
-from . import config
-from .utils import setup_logging
-from .fyers_service import FyersService
-from .equity_breakout_detection import run_pre_filter_stage
-from .breakout_logic import analyze_breakout_quality
-from .initial_breakouts import initial_breakouts
-from .stage_breakouts import StageBreakoutsManager
+from equity_backtesting_framework import config
+from equity_backtesting_framework.utils import setup_logging
+from equity_backtesting_framework.fyers_service import FyersService
+from equity_backtesting_framework.equity_breakout_detection import run_pre_filter_stage
+from equity_backtesting_framework.breakout_logic import analyze_breakout_quality
+from equity_backtesting_framework.initial_breakouts import initial_breakouts
+from equity_backtesting_framework.stage_breakouts import StageBreakoutsManager
 # Renamed to avoid confusion with the manager class
-from .intraday_equity_spurts_monitor import SpurtMonitorManager as SpurtMonitorManager_Class, get_spurt_monitor_manager
-from .order_manager import OrderManager
+from equity_backtesting_framework.intraday_equity_spurts_monitor import SpurtMonitorManager as SpurtMonitorManager_Class, get_spurt_monitor_manager
+from equity_backtesting_framework.order_manager import OrderManager
 
 def run_backtest_for_day(backtest_date: datetime, fyers_service: FyersService):
     """
@@ -74,11 +81,28 @@ def run_backtest_for_day(backtest_date: datetime, fyers_service: FyersService):
         # At 09:20, run the first initial_breakouts check
         if current_time.time() == time(9, 20):
             logging.info(f"[{current_time_str}] Running initial breakouts check (09:20)")
+
             # Create the 5-min candle from 1-min data
-            df_0915_5min = pd.concat([df.loc[current_time-timedelta(minutes=5):current_time] for df in data_1min_map.values()]).groupby('symbol').agg(
-                {'open':'first', 'high':'max', 'low':'min', 'close':'last', 'volume':'sum'}
-            )
-            initial_breakouts(breakout_quality_df, pre_filtered_df, df_0915_5min.reset_index(), daily_data_map, current_time.time())
+            candles_to_concat = []
+            for symbol, df in data_1min_map.items():
+                # Select the time window for the first 5-min candle
+                df_window = df.loc[(df.index >= current_time - timedelta(minutes=5)) & (df.index < current_time)]
+                if not df_window.empty:
+                    # Add the symbol column before concatenation
+                    candles_to_concat.append(df_window.assign(symbol=symbol))
+
+            if candles_to_concat:
+                df_0915_1min_combined = pd.concat(candles_to_concat)
+                df_0915_5min = df_0915_1min_combined.groupby('symbol').agg(
+                    open=('open', 'first'),
+                    high=('high', 'max'),
+                    low=('low', 'min'),
+                    close=('close', 'last'),
+                    volume=('volume', 'sum')
+                )
+                initial_breakouts(breakout_quality_df, pre_filtered_df, df_0915_5min.reset_index(), daily_data_map, current_time.time())
+            else:
+                logging.warning(f"[{current_time_str}] No 1-minute data found to create the 09:15-09:20 candle.")
 
         # On 5-minute intervals (e.g., 09:25, 09:30...)
         if current_time.minute % 5 == 0 and current_time.time() > time(9, 20):
