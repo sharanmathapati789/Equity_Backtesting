@@ -18,7 +18,7 @@ FYERS_CONFIG = {
     'secret_key': 'YOUR_SECRET_KEY',
     'redirect_uri': 'http://localhost:3000/auth', # Example redirect URI
     'log_path': 'logs/fyers_api_logs/',
-    'access_token_path': './access_token.txt' # Path to store the generated access token
+    'access_token_path': './fyers_access_token.json' # Path to store the generated access token
 }
 
 # Logging Configuration
